@@ -3,6 +3,10 @@ import streamlit.components.v1 as components
 import pandas as pd
 import requests
 import os
+import xml.etree.ElementTree as ET
+from urllib.parse import quote
+from email.utils import parsedate_to_datetime
+from zoneinfo import ZoneInfo
 from datetime import datetime
 
 # --- App ၏ အပြင်အဆင် သတ်မှတ်ခြင်း ---
@@ -76,16 +80,34 @@ def fetch_fear_greed():
     except Exception:
         return None, None
 
+@st.cache_data(ttl=600)
+def fetch_news(query, n=4):
+    """Google News RSS: list of (title, source, time_yangon, link)."""
+    try:
+        url = f"https://news.google.com/rss/search?q={quote(query)}&hl=en-US&gl=US&ceid=US:en"
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        root = ET.fromstring(r.content)
+        out = []
+        for it in root.findall(".//item")[:n]:
+            title = (it.findtext("title", "") or "").strip()
+            link = (it.findtext("link", "") or "").strip()
+            src = (it.findtext("source", "") or "").strip()
+            pub = (it.findtext("pubDate", "") or "").strip()
+            try:
+                when = parsedate_to_datetime(pub).astimezone(ZoneInfo("Asia/Yangon")).strftime("%m-%d %H:%M")
+            except Exception:
+                when = pub
+            if title and link:
+                out.append((title[:110], src, when, link))
+        return out
+    except Exception:
+        return []
+
 # ==========================================
 # TAB 1: Technical Analysis (do everything inside the chart)
 # ==========================================
 with tabs[0]:
     st.header(t("📊 Technical Analysis (TradingView Interactive Chart)", "📊 Technical Analysis"))
-
-    st.write(t("Chart ထဲမှာပဲ Pair ပြောင်းပါ၊ Timeframe ပြောင်းပါ၊ မျဉ်းဆွဲပါ၊ Indicator ထည့်ပါ — အပေါ်က ခလုတ်တွေ မလိုတော့ပါ။",
-               "Change the pair, timeframe, draw patterns and add indicators right inside the chart — no buttons above needed."))
-    st.info(t("📸 Pattern ဆွဲပြီးရင် Chart ရဲ့ Menu ကနေ **Save Image** နှိပ်ပြီး ပုံသိမ်းပါ — ပြီးရင် **Trading Diary** Tab မှာ အဲဒီပုံကို Upload လုပ်ပြီး မှတ်ထားလို့ရပါတယ်။",
-              "📸 After drawing your pattern, use **Save Image** from the chart menu to save the picture — then upload it in the **Trading Diary** tab to keep it with your trade."))
 
     html_code = """
     <div style="height: 600px; width: 100%;">
@@ -178,6 +200,25 @@ with tabs[1]:
                      "Could not fetch live data — check your connection and refresh the page."))
     st.caption(t("အချိန်ကို Yangon Time ဖြင့် ပြထားပါတယ် — ", "Times shown in Yangon Time — ")
                + datetime.now().strftime("%Y-%m-%d %H:%M"))
+
+    st.subheader(t("📰 အရေးကြီးသတင်း", "📰 Important News"))
+    ncol1, ncol2 = st.columns(2)
+    with ncol1:
+        st.write(t("🪙 Crypto သတင်း", "🪙 Crypto News"))
+        crypto_news = fetch_news("Bitcoin OR Ethereum OR crypto market", 4)
+        if crypto_news:
+            for title, src, when, link in crypto_news:
+                st.markdown(f"- [{title}]({link})  \n  *{src} · {when}*")
+        else:
+            st.write(t("သတင်း ဆွဲမရပါ။", "Could not load news."))
+    with ncol2:
+        st.write(t("📈 Stocks & Fed သတင်း", "📈 Stocks & Fed News"))
+        stock_news = fetch_news("stock market OR Federal Reserve OR Nvidia", 4)
+        if stock_news:
+            for title, src, when, link in stock_news:
+                st.markdown(f"- [{title}]({link})  \n  *{src} · {when}*")
+        else:
+            st.write(t("သတင်း ဆွဲမရပါ။", "Could not load news."))
 
 # ==========================================
 # TAB 3: Trading Psychology (daily tip + pre-trade checklist)
@@ -283,7 +324,7 @@ with tabs[3]:
             j_exit = st.number_input("Exit Price", min_value=0.0, format="%.4f")
             j_rr = st.number_input(t("RR Ratio (1 : X)", "RR Ratio (1 : X)"), min_value=0.0, value=2.0, step=0.5, format="%.1f")
         with col_c:
-            j_volume = st.number_input(t("Volume (Lot / Qty)", "Volume (Lot / Qty)"), min_value=0.0, format="%.4f")
+            j_volume = st.number_input(t("Volume (USDT)", "Volume (USDT)"), min_value=0.0, format="%.2f")
             j_result = st.selectbox("Result", ["Win 🏆", "Loss 💔", "Break Even 🤝"])
             j_setup = st.selectbox("Setup Type", ["Price Action", "SMC"])
 
