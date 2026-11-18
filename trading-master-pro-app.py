@@ -118,6 +118,9 @@ with tabs[0]:
             width: 100vh; height: 100vw;
             transform: translate(-50%, -50%) rotate(90deg);
           }
+          #tv_wrap.fs-landscape #tv_chart_container iframe {
+            width: 100% !important; height: 100% !important;
+          }
         </style>
         <div id="tv_bar" style="display:flex; justify-content:flex-end; padding:6px 8px;">
             <button id="tv_fs" style="background:#2a2e39; color:#fff; border:1px solid #555; border-radius:6px; padding:5px 12px; font-size:13px; cursor:pointer;">⛶ Fullscreen</button>
@@ -125,7 +128,9 @@ with tabs[0]:
         <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
         <script type="text/javascript">
         new TradingView.widget({
-            "autosize": true,
+            "autosize": false,
+            "width": "100%",
+            "height": 600,
             "symbol": "BINANCE:BTCUSDT",
             "interval": "60",
             "timezone": "Asia/Yangon",
