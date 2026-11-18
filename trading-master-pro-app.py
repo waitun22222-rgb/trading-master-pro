@@ -1,6 +1,5 @@
 import streamlit as st
 import streamlit.components.v1 as components
-import json
 import pandas as pd
 import requests
 import os
@@ -109,46 +108,15 @@ def fetch_news(query, n=4):
 # ==========================================
 with tabs[0]:
     st.header(t("📊 Technical Analysis (TradingView Interactive Chart)", "📊 Technical Analysis"))
-    st.caption(t("📱 ဖုန်းနဲ့ ကြည့်ရင် အလျားလိုက် (Landscape) လှည့်ကြည့်ပါ — Chart ပိုကျယ်ကျယ်မြင်ရမယ်။ ဖုန်းရဲ့ Auto-rotate ဖွင့်ထားဖို့ လိုပါတယ်။",
-                 "📱 On your phone, rotate to landscape for a wider chart. Make sure your phone's auto-rotate is on."))
 
-    # --- Indicator selector: 15 studies (TradingView tv-basicstudies) ---
-    INDICATORS = {
-        "EMA": "MAExp@tv-basicstudies",
-        "SMA": "MASimple@tv-basicstudies",
-        "RSI": "RSI@tv-basicstudies",
-        "MACD": "MACD@tv-basicstudies",
-        "Bollinger Bands": "BollingerBands@tv-basicstudies",
-        "Stochastic": "Stochastic@tv-basicstudies",
-        "VWAP": "VWAP@tv-basicstudies",
-        "ATR": "ATR@tv-basicstudies",
-        "Volume": "Volume@tv-basicstudies",
-        "Ichimoku Cloud": "IchimokuCloud@tv-basicstudies",
-        "ADX": "ADX@tv-basicstudies",
-        "CCI": "CCI@tv-basicstudies",
-        "Awesome Oscillator": "AwesomeOscillator@tv-basicstudies",
-        "Parabolic SAR": "ParabolicSAR@tv-basicstudies",
-        "OBV": "OBV@tv-basicstudies",
-    }
-    selected_ind = st.multiselect(
-        t("📈 Indicators ရွေးပါ (၁၅ မျိုးထဲက ကြိုက်သလောက်ရွေးနိုင်ပါတယ် — Chart ပေါ်မှာ တစ်ပြိုင်နက် ပြပါမယ်)",
-          "📈 Choose indicators (pick any of 15 — they all show on the chart at once)"),
-        options=list(INDICATORS.keys()),
-        default=["EMA", "RSI", "MACD", "Bollinger Bands", "Volume"])
-    studies = [INDICATORS[name] for name in selected_ind]
-    st.caption(t("Indicator ပြောင်းရင် Chart ပြန်စပါမယ်။ Chart ထဲက fx ခလုတ်နဲ့လည်း Indicator အခြား ရာချီ ထပ်ထည့်လို့ရပါတယ် (Length စတာတွေ အဲဒီမှာပြင်နိုင်ပါတယ်)။",
-                 "Changing indicators reloads the chart. The chart's own fx button also lets you add hundreds more indicators (and adjust lengths there)."))
-
-    html_code = f"""
+    html_code = """
     <div id="tv_wrap" style="width: 100%; background:#131722;">
-        <div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 8px;">
-            <span id="tv_hint" style="display:none; background:#f59e0b; color:#111; font-size:13px; font-weight:600; padding:5px 12px; border-radius:20px; white-space:nowrap;">📱 ဖုန်းကို အလျားလိုက် လှည့်ပါ</span>
-            <span style="flex:1;"></span>
+        <div style="display:flex; justify-content:flex-end; padding:6px 8px;">
             <button id="tv_fs" style="background:#2a2e39; color:#fff; border:1px solid #555; border-radius:6px; padding:5px 12px; font-size:13px; cursor:pointer;">⛶ Fullscreen</button>
         </div>
         <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
         <script type="text/javascript">
-        new TradingView.widget({{
+        new TradingView.widget({
             "autosize": false,
             "width": "100%",
             "height": 600,
@@ -167,31 +135,26 @@ with tabs[0]:
             "allow_symbol_change": true,
             "save_image": true,
             "toolbar_bg": "#f1f3f6",
-            "studies": {json.dumps(studies)},
+            "studies": [],
             "container_id": "tv_chart_container"
-        }});
-        (function(){{
-          var hint = document.getElementById('tv_hint');
-          function checkOrient(){{
-            if (window.innerWidth < 820 && window.innerHeight > window.innerWidth) {{ hint.style.display='inline-block'; }} else {{ hint.style.display='none'; }}
-          }}
-          window.addEventListener('resize', checkOrient); checkOrient();
-          document.getElementById('tv_fs').addEventListener('click', function(){{
+        });
+        (function(){
+          document.getElementById('tv_fs').addEventListener('click', function(){
             var el = document.getElementById('tv_wrap');
             var p = null;
-            if (el.requestFullscreen) {{ p = el.requestFullscreen(); }}
-            else if (el.webkitRequestFullscreen) {{ el.webkitRequestFullscreen(); }}
-            if (p && p.then) {{ p.then(function(){{
-              if (screen.orientation && screen.orientation.lock) {{ screen.orientation.lock('landscape').catch(function(){{}}); }}
-            }}).catch(function(){{}}); }}
-          }});
-        }})();
+            if (el.requestFullscreen) { p = el.requestFullscreen(); }
+            else if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); }
+            if (p && p.then) { p.then(function(){
+              if (screen.orientation && screen.orientation.lock) { screen.orientation.lock('landscape').catch(function(){}); }
+            }).catch(function(){}); }
+          });
+        })();
         </script>
         <div id="tv_chart_container" style="height: 600px; width: 100%;"></div>
     </div>
     """
 
-    components.html(html_code, height=660)
+    components.html(html_code, height=640)
 
 # ==========================================
 # TAB 2: Fundamental Analysis (live data)
