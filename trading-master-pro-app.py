@@ -110,16 +110,22 @@ with tabs[0]:
     st.header(t("📊 Technical Analysis (TradingView Interactive Chart)", "📊 Technical Analysis"))
 
     html_code = """
-    <div id="tv_wrap" style="width: 100%; background:#131722;">
-        <div style="display:flex; justify-content:flex-end; padding:6px 8px;">
+    <div id="tv_wrap" style="width: 100%; background:#131722; position:relative;">
+        <style>
+          #tv_wrap.fs-landscape #tv_bar { display: none; }
+          #tv_wrap.fs-landscape #tv_chart_container {
+            position: absolute; top: 50%; left: 50%;
+            width: 100vh; height: 100vw;
+            transform: translate(-50%, -50%) rotate(90deg);
+          }
+        </style>
+        <div id="tv_bar" style="display:flex; justify-content:flex-end; padding:6px 8px;">
             <button id="tv_fs" style="background:#2a2e39; color:#fff; border:1px solid #555; border-radius:6px; padding:5px 12px; font-size:13px; cursor:pointer;">⛶ Fullscreen</button>
         </div>
         <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
         <script type="text/javascript">
         new TradingView.widget({
-            "autosize": false,
-            "width": "100%",
-            "height": 600,
+            "autosize": true,
             "symbol": "BINANCE:BTCUSDT",
             "interval": "60",
             "timezone": "Asia/Yangon",
@@ -139,14 +145,25 @@ with tabs[0]:
             "container_id": "tv_chart_container"
         });
         (function(){
+          var wrap = document.getElementById('tv_wrap');
+          document.addEventListener('fullscreenchange', function(){
+            if (document.fullscreenElement) {
+              if (window.innerHeight > window.innerWidth) {
+                if (screen.orientation && screen.orientation.lock) {
+                  screen.orientation.lock('landscape').then(function(){
+                    if (screen.orientation.type.indexOf('landscape') !== 0) { wrap.classList.add('fs-landscape'); }
+                  }).catch(function(){ wrap.classList.add('fs-landscape'); });
+                } else {
+                  wrap.classList.add('fs-landscape');
+                }
+              }
+            } else {
+              wrap.classList.remove('fs-landscape');
+            }
+          });
           document.getElementById('tv_fs').addEventListener('click', function(){
-            var el = document.getElementById('tv_wrap');
-            var p = null;
-            if (el.requestFullscreen) { p = el.requestFullscreen(); }
-            else if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); }
-            if (p && p.then) { p.then(function(){
-              if (screen.orientation && screen.orientation.lock) { screen.orientation.lock('landscape').catch(function(){}); }
-            }).catch(function(){}); }
+            if (wrap.requestFullscreen) { wrap.requestFullscreen().catch(function(){}); }
+            else if (wrap.webkitRequestFullscreen) { wrap.webkitRequestFullscreen(); }
           });
         })();
         </script>
