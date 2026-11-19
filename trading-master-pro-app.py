@@ -22,6 +22,27 @@ def t(mm_text, en_text):
     return mm_text if language == "Myanmar (မြန်မာ)" else en_text
 
 st.title(t("📈 Trading Master Pro", "📈 Trading Master Pro"))
+
+# --- Live clock (Myanmar time, updates every second, no app rerun) ---
+_is_mm = (language == "Myanmar (မြန်မာ)")
+_clock_locale = "my-MM" if _is_mm else "en-GB"
+_clock_numbering = "mymr" if _is_mm else "latn"
+_clock_label = "🕐 မြန်မာစံတော်ချိန်" if _is_mm else "🕐 Myanmar Time (Yangon)"
+_clock_html = f"""
+<div id="live-clock" style="font-size:20px; padding:2px 0 8px 0;">—</div>
+<script>
+function tickClock() {{
+  var now = new Date();
+  var timeFmt = new Intl.DateTimeFormat("{_clock_locale}", {{timeZone: "Asia/Yangon", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, numberingSystem: "{_clock_numbering}"}});
+  var dateFmt = new Intl.DateTimeFormat("{_clock_locale}", {{timeZone: "Asia/Yangon", weekday: "long", year: "numeric", month: "long", day: "numeric", numberingSystem: "{_clock_numbering}"}});
+  document.getElementById("live-clock").innerHTML = "<b>{_clock_label}:</b> " + timeFmt.format(now) + " &nbsp;•&nbsp; " + dateFmt.format(now);
+}}
+tickClock();
+setInterval(tickClock, 1000);
+</script>
+"""
+components.html(_clock_html, height=45)
+
 st.markdown("---")
 
 tabs = st.tabs([
