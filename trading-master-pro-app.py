@@ -126,43 +126,213 @@ def fetch_news(query, n=4):
         return []
 
 # ==========================================
-# TAB 1: Technical Analysis (do everything inside the chart)
+# TAB 1: Technical Analysis — Price Action Toolkit (no embedded chart;
+# Wai does charting directly in TradingView)
 # ==========================================
+PA_PAIRS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "HYPEUSDT", "SUIUSDT",
+            "COMPUSDT", "SNDKUSDT", "SPCXUSDT", "NVDAUSDT", "XAUUSDT", "BNBUSDT"]
+TV_MAP = {"NVDAUSDT": "NASDAQ:NVDA", "SNDKUSDT": "NASDAQ:SNDK"}
+
+@st.cache_data(ttl=300)
+def fetch_klines(symbol, interval, limit=250):
+    """Binance Futures klines -> list of (o, h, l, c, close_ms) or None."""
+    for base in ("https://data-api.binance.vision", "https://www.binance.com"):
+        try:
+            r = requests.get(f"{base}/fapi/v1/klines?symbol={symbol}&interval={interval}&limit={limit}", timeout=10)
+            data = r.json()
+            if isinstance(data, list) and len(data) > 5:
+                return [(float(k[1]), float(k[2]), float(k[3]), float(k[4]), int(k[6])) for k in data]
+        except Exception:
+            continue
+    return None
+
+def closed_candles(klines):
+    now_ms = int(datetime.now(ZoneInfo("UTC")).timestamp() * 1000)
+    return [k for k in klines if k[4] <= now_ms]
+
+def sma(values, n):
+    if len(values) < n:
+        return None
+    return sum(values[-n:]) / n
+
+def detect_patterns(closed):
+    """Last closed candle: pattern names among Hammer, Shooting Star,
+    Bullish Engulfing, Bearish Engulfing (same rules as the hourly watch)."""
+    if len(closed) < 2:
+        return []
+    o, h, l, c, _ = closed[-1]
+    po, ph, pl, pc, _ = closed[-2]
+    body = abs(c - o)
+    lower = min(o, c) - l
+    upper = h - max(o, c)
+    rng = h - l
+    out = []
+    is_doji = rng > 0 and body <= 0.05 * rng
+    if (lower >= 2 * body and upper <= body) or (is_doji and lower >= 0.6 * rng and upper <= 0.15 * rng):
+        out.append("Hammer")
+    if (upper >= 2 * body and lower <= body) or (is_doji and upper >= 0.6 * rng and lower <= 0.15 * rng):
+        out.append("Shooting Star")
+    if pc < po and c > o and o <= pc and c >= po:
+        out.append("Bullish Engulfing")
+    if pc > po and c < o and o >= pc and c <= po:
+        out.append("Bearish Engulfing")
+    return out
+
+def find_sr_levels(closed, window=5, tol=0.005):
+    """Pivot highs/lows clustered within tol -> (resistance levels, support levels)."""
+    highs, lows = [], []
+    for i in range(window, len(closed) - window):
+        h, l = closed[i][1], closed[i][2]
+        if h == max(k[1] for k in closed[i - window:i + window + 1]):
+            highs.append(h)
+        if l == min(k[2] for k in closed[i - window:i + window + 1]):
+            lows.append(l)
+    def cluster(levels):
+        groups = []
+        for lv in sorted(levels):
+            if groups and abs(lv - groups[-1][-1]) / groups[-1][-1] <= tol:
+                groups[-1].append(lv)
+            else:
+                groups.append([lv])
+        return [sum(g) / len(g) for g in groups]
+    return cluster(highs), cluster(lows)
+
+def fmt_p(p):
+    p = float(p)
+    if p >= 10000:
+        return f"${p:,.0f}"
+    if p >= 100:
+        return f"${p:,.2f}"
+    if p >= 1:
+        return f"${p:,.2f}"
+    return f"${p:,.4f}"
+
 with tabs[0]:
-    st.header(t("📊 Technical Analysis (TradingView Interactive Chart)", "📊 Technical Analysis"))
+    st.header(t("📊 Technical Analysis — Price Action Toolkit", "📊 Technical Analysis — Price Action Toolkit"))
+    st.write(t("Chart ကို TradingView မှာ တိုက်ရိုက်ကြည့်ပါ — ဒီ Tab က Support/Resistance, MA200, Candle Pattern နဲ့ H1 Entry တို့ကို တွက်ချက်ပေးပါတယ်။",
+               "Do charting directly in TradingView — this tab calculates Support/Resistance, MA200, candle patterns and H1 entries for you."))
+    pa_pair = st.selectbox(t("Pair ရွေးပါ", "Select Pair"), PA_PAIRS, key="pa_pair")
+    tv_sym = TV_MAP.get(pa_pair, f"BINANCE:{pa_pair}")
+    st.link_button(t(f"📈 {pa_pair} ကို TradingView မှာ ဖွင့်ရန်", f"📈 Open {pa_pair} in TradingView"),
+                   f"https://www.tradingview.com/chart/?symbol={tv_sym}")
 
-    html_code = """
-    <div style="height: 600px; width: 100%;">
-        <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
-        <script type="text/javascript">
-        new TradingView.widget({
-            "autosize": false,
-            "width": "100%",
-            "height": 600,
-            "symbol": "BINANCE:BTCUSDT",
-            "interval": "60",
-            "timezone": "Asia/Yangon",
-            "theme": "dark",
-            "style": "1",
-            "locale": "en",
-            "enable_publishing": false,
-            "backgroundColor": "#131722",
-            "gridColor": "#1f293d",
-            "hide_top_toolbar": false,
-            "hide_legend": false,
-            "hide_side_toolbar": false,
-            "allow_symbol_change": true,
-            "save_image": true,
-            "toolbar_bg": "#f1f3f6",
-            "studies": [],
-            "container_id": "tv_chart_container"
-        });
-        </script>
-        <div id="tv_chart_container" style="height: 100%; width: 100%;"></div>
-    </div>
-    """
+    k1d = fetch_klines(pa_pair, "1d", 250)
+    k4h = fetch_klines(pa_pair, "4h", 250)
+    k1h = fetch_klines(pa_pair, "1h", 30)
+    if not k1d or not k4h:
+        st.warning(t("Binance က Data ဆွဲမရပါ — အင်တာနက် စစ်ပြီး Refresh လုပ်ပါ။",
+                     "Could not fetch Binance data — check your connection and refresh."))
+    else:
+        c1d, c4h = closed_candles(k1d), closed_candles(k4h)
+        price = c1d[-1][3]
+        ma200_d1 = sma([k[3] for k in c1d], 200)
+        ma200_h4 = sma([k[3] for k in c4h], 200)
+        votes = []
+        if ma200_d1 is not None:
+            votes.append(1 if price > ma200_d1 else -1)
+        if ma200_h4 is not None:
+            votes.append(1 if price > ma200_h4 else -1)
+        pat4h = detect_patterns(c4h)
+        pat1d = detect_patterns(c1d)
+        for p in pat4h + pat1d:
+            votes.append(1 if p in ("Hammer", "Bullish Engulfing") else -1)
+        s = sum(votes)
+        bias = t("📈 Bullish", "📈 Bullish") if s > 0 else (t("📉 Bearish", "📉 Bearish") if s < 0 else t("➖ Neutral / Mixed", "➖ Neutral / Mixed"))
+        st.subheader(t(f"{pa_pair} — လက်ရှိအခြေအနေ", f"{pa_pair} — Current Picture"))
+        b1, b2, b3, b4 = st.columns(4)
+        b1.metric(t("လက်ရှိဈေး", "Price"), fmt_p(price))
+        if ma200_d1 is not None:
+            b2.metric("MA200 (D1)", fmt_p(ma200_d1), f"{(price / ma200_d1 - 1) * 100:+.1f}%")
+        else:
+            b2.metric("MA200 (D1)", "—")
+        if ma200_h4 is not None:
+            b3.metric("MA200 (H4)", fmt_p(ma200_h4), f"{(price / ma200_h4 - 1) * 100:+.1f}%")
+        else:
+            b3.metric("MA200 (H4)", "—")
+        b4.metric(t("Price Action Bias", "Price Action Bias"), bias)
+        st.caption(t("Bias က MA200 (D1+H4) အပေါ်/အောက် + H4/D1 Pattern တွေကို ပေါင်းပြီး တွက်ထားတာပါ — Trade ဝင်ဖို့ အမိန့်မဟုတ်ပါ၊ ကိုယ့် Analysis နဲ့ အတည်ပြုပါ။",
+                     "Bias combines price vs MA200 (D1+H4) and H4/D1 patterns — it is not a trade call; confirm with your own analysis."))
+        st.subheader(t("🧱 Support & Resistance", "🧱 Support & Resistance"))
+        for label, closed in ((t("Daily (D1)", "Daily (D1)"), c1d), (t("4H", "4H"), c4h)):
+            highs, lows = find_sr_levels(closed)
+            res = sorted([x for x in highs if x > price])[:3]
+            sup = sorted([x for x in lows if x < price], reverse=True)[:3]
+            st.write(f"**{label}**")
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                st.write(t("🔴 Resistance (အပေါ်)", "🔴 Resistance (above)"))
+                if res:
+                    for r in res:
+                        st.write(f"• {fmt_p(r)}  ({(r / price - 1) * 100:+.1f}%)")
+                else:
+                    st.write("—")
+            with rc2:
+                st.write(t("🟢 Support (အောက်)", "🟢 Support (below)"))
+                if sup:
+                    for sp in sup:
+                        st.write(f"• {fmt_p(sp)}  ({(sp / price - 1) * 100:+.1f}%)")
+                else:
+                    st.write("—")
+        st.subheader(t("🎯 H1 Entry Check", "🎯 H1 Entry Check"))
+        st.write(t("H4/D1 က Direction သတ်မှတ်ပြီး H1 မှာ Entry Timing ရှာပါ — H1 Pattern က H4/D1 Bias နဲ့ တူတဲ့ ဘက်ဖြစ်ရမယ်။",
+                   "H4/D1 set the direction; H1 times the entry — the H1 pattern must agree with the H4/D1 bias."))
+        if k1h:
+            c1h = closed_candles(k1h)
+            h1_trend = t("Up", "Up") if c1h[-1][3] > c1h[-6][3] else t("Down", "Down")
+            h1_pat = detect_patterns(c1h)
+            st.write(t(f"H1 Trend (နောက် 5 Candle): **{h1_trend}** • နောက်ဆုံး H1 Pattern: **{', '.join(h1_pat) if h1_pat else '—'}**",
+                       f"H1 Trend (last 5 candles): **{h1_trend}** • Last H1 pattern: **{', '.join(h1_pat) if h1_pat else '—'}**"))
+            rows = []
+            for k in c1h[-5:]:
+                rows.append({"Time (Yangon)": datetime.fromtimestamp(k[4] / 1000, ZoneInfo("Asia/Yangon")).strftime("%m-%d %H:%M"),
+                             "Open": fmt_p(k[0]), "High": fmt_p(k[1]), "Low": fmt_p(k[2]), "Close": fmt_p(k[3])})
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-    components.html(html_code, height=620)
+    st.subheader(t("🕯️ Candle Pattern Scanner — H4 & D1 (Pair ၁၁ ခု)", "🕯️ Candle Pattern Scanner — H4 & D1 (11 pairs)"))
+    st.write(t("နောက်ဆုံး ပိတ်ပြီးသား H4/D1 Candle မှာ Hammer, Shooting Star, Bullish/Bearish Engulfing ပေါ်တဲ့ Pair တွေ — နာရီတိုင်း Alert ပို့တဲ့ Watch နဲ့ အတူတူပဲ။",
+               "Last closed H4/D1 candles showing Hammer, Shooting Star, Bullish/Bearish Engulfing — same rules as the hourly alert watch."))
+    scan_rows = []
+    for sym in PA_PAIRS:
+        k4 = fetch_klines(sym, "4h", 8)
+        k1 = fetch_klines(sym, "1d", 8)
+        row = {"Pair": sym, "H4": "—", "D1": "—", "SL ref": "—"}
+        if k4:
+            cc = closed_candles(k4)
+            pp = detect_patterns(cc)
+            if pp:
+                row["H4"] = ", ".join(pp)
+                row["SL ref"] = fmt_p(cc[-1][2]) if pp[0] in ("Hammer", "Bullish Engulfing") else fmt_p(cc[-1][1])
+        if k1:
+            cc = closed_candles(k1)
+            pp = detect_patterns(cc)
+            if pp:
+                row["D1"] = ", ".join(pp)
+                if row["SL ref"] == "—":
+                    row["SL ref"] = fmt_p(cc[-1][2]) if pp[0] in ("Hammer", "Bullish Engulfing") else fmt_p(cc[-1][1])
+        scan_rows.append(row)
+    st.dataframe(pd.DataFrame(scan_rows), use_container_width=True, hide_index=True)
+
+    st.subheader(t("📏 Price Action Rules", "📏 Price Action Rules"))
+    st.markdown(t("""
+- **Trend နဲ့အတူ Trade လုပ်ပါ** — ဈေးက MA200 (D1+H4) အပေါ်မှာဆို Long Bias ပဲ၊ အောက်မှာဆို Short Bias ပဲ။
+- **D1 → H4 → H1** — D1 က Direction၊ H4 က Setup၊ H1 က Entry Timing။
+- **S/R နားမှာပဲ ဝင်ပါ** — Support နားမှာ Long၊ Resistance နားမှာ Short။ Range အလယ်မှာ မဝင်ပါနဲ့။
+- **Candle ပိတ်ပြီးမှ ဝင်ပါ** — ပုံစံပေါ်နေတုန်း (မပိတ်သေးတဲ့ Candle) မှာ မဝင်ပါနဲ့။
+- **Pattern + S/R ပေါင်းမှ အားကောင်းတယ်** — Pattern တစ်ခုတည်းက အားနည်းတယ်။
+- **SL က Pattern Candle ရဲ့ Low/High အောက်/အပေါ်မှာ ထားပါ**၊ Risk 1–2% ပဲ ယူပါ (Tab 5 Calculator သုံးပါ)။
+- **ရှေ့မှာ S/R ကြီး ပိတ်နေရင် မဝင်ပါနဲ့** — Target မရောက်ခင် Resistance/Support နဲ့ တိုးနိုင်တယ်။
+- **H4 နဲ့ D1 Bias ကွဲနေရင် စောင့်ပါ** — နှစ်ခုလုံး တူတဲ့ ဘက်မှ ဝင်ပါ။
+""",
+"""
+- **Trade with the trend** — price above MA200 (D1+H4) means long bias only; below means short bias only.
+- **D1 → H4 → H1** — D1 sets direction, H4 sets the setup, H1 times the entry.
+- **Enter only near S/R** — longs near support, shorts near resistance; never mid-range.
+- **Wait for the candle to CLOSE** — never enter on a forming pattern.
+- **Pattern + S/R confluence is strong** — a pattern alone is weak.
+- **Place SL below/above the pattern candle's low/high**, risk only 1–2% per trade (use the Tab 5 calculator).
+- **Do not enter when a major S/R sits just ahead** — it can block the target.
+- **If H4 and D1 bias disagree, wait** — enter only when both agree.
+"""))
 
 # ==========================================
 # TAB 2: Fundamental Analysis (live data)
