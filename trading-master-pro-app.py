@@ -49,7 +49,8 @@ tabs = st.tabs([
     t("📊 1. Technical Analysis", "📊 1. Technical Analysis"),
     t("🌍 2. Fundamental Analysis", "🌍 2. Fundamental Analysis"),
     t("🧠 3. Trading Psychology", "🧠 3. Trading Psychology"),
-    t("📓 4. Trading Diary", "📓 4. Trading Diary")
+    t("📓 4. Trading Diary", "📓 4. Trading Diary"),
+    t("🧮 5. Lot Size Calculator", "🧮 5. Lot Size Calculator")
 ])
 
 tv_symbols = {
@@ -419,3 +420,98 @@ with tabs[3]:
                   "No records yet — add a trade in the form above."))
     st.caption(t("⚠️ Diary နဲ့ ပုံတွေကို App နဲ့အတူ ဖိုင်ထဲ သိမ်းထားပါတယ်။ App ကို ပြန်တင်ရင် (redeploy) ပျောက်နိုင်လို့ အခါအားလျော်စွာ Download လုပ်ပြီး သိမ်းထားပါ။",
                  "⚠️ The diary and images are stored in files next to the app. They can be lost on redeploy, so download a backup copy from time to time."))
+
+# ==========================================
+# TAB 5: Lot Size Calculator (risk-based position sizing)
+# ==========================================
+with tabs[4]:
+    st.header(t("🧮 Lot Size Calculator", "🧮 Lot Size Calculator"))
+    st.write(t("Account Balance နဲ့ Risk % ပေါ်မူတည်ပြီး ဘယ်လောက် Lot (Quantity) ဝင်ရမလဲ တွက်ပေးပါတယ် — SL ထိရင် ဆုံးရှုံးမယ့်ငွေက Risk Amount အတိအကျပဲ ဖြစ်မယ်။",
+               "Calculates how much to buy/sell (quantity) from your account balance and risk % — if the stop-loss is hit, you lose exactly the risk amount."))
+
+    ls_symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "HYPEUSDT", "SUIUSDT",
+                  "COMPUSDT", "SNDKUSDT", "SPCXUSDT", "NVDAUSDT", "XAUUSDT", "BNBUSDT"]
+
+    in_col, out_col = st.columns([1, 1])
+    with in_col:
+        st.subheader(t("📝 ထည့်သွင်းရန်", "📝 Inputs"))
+        ls_pair = st.selectbox(t("Pair", "Pair"), ls_symbols, key="ls_pair")
+        if st.button(t("📥 Live Price ယူမယ်", "📥 Get Live Price"), key="ls_live_btn"):
+            lp, _lp_chg = fetch_binance_ticker(ls_pair)
+            if lp is not None:
+                st.session_state["ls_entry_input"] = float(lp)
+                st.success(t(f"Live Price: ${lp:,.2f} — Entry မှာ ထည့်ပြီးပြီ။",
+                             f"Live price: ${lp:,.2f} — filled into Entry."))
+                st.rerun()
+            else:
+                st.warning(t("Live Price ဆွဲမရပါ — Entry ကို ကိုယ်တိုင် ရိုက်ပါ။",
+                             "Could not fetch live price — enter the price manually."))
+        ls_balance = st.number_input(t("Account Balance (USDT)", "Account Balance (USDT)"),
+                                     min_value=0.0, value=100.0, step=10.0, format="%.2f", key="ls_balance")
+        ls_risk = st.number_input(t("Risk per Trade (%)", "Risk per Trade (%)"),
+                                  min_value=0.1, max_value=10.0, value=1.0, step=0.5, format="%.1f", key="ls_risk")
+        ls_dir = st.radio(t("Direction", "Direction"), ["Long (Buy)", "Short (Sell)"],
+                          horizontal=True, key="ls_dir")
+        ls_entry = st.number_input(t("Entry Price ($)", "Entry Price ($)"),
+                                   min_value=0.0, value=0.0, format="%.4f", key="ls_entry_input")
+        ls_sl = st.number_input(t("Stop Loss Price ($)", "Stop Loss Price ($)"),
+                                min_value=0.0, value=0.0, format="%.4f", key="ls_sl_input")
+        ls_tp = st.number_input(t("Take Profit Price ($) — မရှိရင် 0 ထားပါ", "Take Profit Price ($) — 0 if none"),
+                                min_value=0.0, value=0.0, format="%.4f", key="ls_tp_input")
+        ls_lev = st.number_input(t("Leverage (x)", "Leverage (x)"),
+                                 min_value=1, max_value=125, value=10, step=1, key="ls_lev")
+
+    with out_col:
+        st.subheader(t("📊 ရလဒ်", "📊 Results"))
+        is_long = ls_dir.startswith("Long")
+        err = None
+        if ls_entry <= 0 or ls_sl <= 0:
+            st.info(t("Entry နဲ့ Stop Loss ဈေးတွေ ထည့်ပါ — ရလဒ် ချက်ချင်း တွက်ပြပါမယ်။",
+                      "Enter Entry and Stop Loss prices — results calculate instantly."))
+        elif ls_entry == ls_sl:
+            err = t("Entry နဲ့ Stop Loss တူလို့ မရပါ။",
+                    "Entry and Stop Loss cannot be the same.")
+        elif is_long and ls_sl > ls_entry:
+            err = t("Long အတွက် Stop Loss က Entry အောက်မှာ ရှိရမယ်။",
+                    "For a Long, the Stop Loss must be below Entry.")
+        elif (not is_long) and ls_sl < ls_entry:
+            err = t("Short အတွက် Stop Loss က Entry အပေါ်မှာ ရှိရမယ်။",
+                    "For a Short, the Stop Loss must be above Entry.")
+        if err:
+            st.error(err)
+        elif ls_entry > 0 and ls_sl > 0:
+            risk_amt = ls_balance * ls_risk / 100.0
+            risk_per_unit = abs(ls_entry - ls_sl)
+            qty = risk_amt / risk_per_unit
+            pos_value = qty * ls_entry
+            margin = pos_value / ls_lev
+            margin_pct = (margin / ls_balance * 100.0) if ls_balance > 0 else 0.0
+            if qty >= 1000:
+                qty_str = f"{qty:,.2f}"
+            elif qty >= 1:
+                qty_str = f"{qty:,.4f}"
+            else:
+                qty_str = f"{qty:,.6f}"
+            m1, m2 = st.columns(2)
+            m1.metric(t("Risk Amount (ဆုံးရှုံးနိုင်ငွေ)", "Risk Amount"), f"${risk_amt:,.2f}")
+            m2.metric(t("Risk per Unit", "Risk per Unit"), f"${risk_per_unit:,.4f}")
+            m1.metric(t("Position Size (Lot / Quantity)", "Position Size (Lot / Quantity)"), qty_str)
+            m2.metric(t("Position Value", "Position Value"), f"${pos_value:,.2f}")
+            m1.metric(t("Required Margin", "Required Margin"), f"${margin:,.2f}")
+            m2.metric(t("Margin / Balance", "Margin / Balance"), f"{margin_pct:.1f}%")
+            if ls_tp > 0:
+                rr = abs(ls_tp - ls_entry) / risk_per_unit
+                st.metric(t("Risk : Reward", "Risk : Reward"), f"1 : {rr:.2f}")
+                st.write(t(f"TP ထိရင် အမြတ် ≈ ${risk_amt * rr:,.2f} • SL ထိရင် အရှုံး = ${risk_amt:,.2f}",
+                           f"If TP hits, profit ≈ ${risk_amt * rr:,.2f} • If SL hits, loss = ${risk_amt:,.2f}"))
+            st.markdown("---")
+            st.write(t(f"🧮 ဖော်မြူလာ: Quantity = (Balance ${ls_balance:,.0f} × {ls_risk:.1f}%) ÷ |Entry − SL| = ${risk_amt:,.2f} ÷ ${risk_per_unit:,.4f}",
+                       f"🧮 Formula: Quantity = (Balance ${ls_balance:,.0f} × {ls_risk:.1f}%) ÷ |Entry − SL| = ${risk_amt:,.2f} ÷ ${risk_per_unit:,.4f}"))
+            if margin > ls_balance:
+                st.warning(t(f"⚠️ Margin ${margin:,.2f} က Balance ${ls_balance:,.2f} ထက် များနေတယ် — Leverage မြှင့်တာ (သို့) Risk % လျှော့တာ လုပ်ပါ။",
+                             f"⚠️ Margin ${margin:,.2f} exceeds your balance ${ls_balance:,.2f} — raise leverage or lower risk %."))
+            elif margin_pct > 50:
+                st.warning(t("⚠️ Margin က Balance ရဲ့ 50% ကျော်နေတယ် — Position ကြီးနေတယ်၊ သတိထားပါ။",
+                             "⚠️ Margin is over 50% of your balance — the position is large, be careful."))
+            st.caption(t("💡 Quantity ကို Exchange ရဲ့ Step Size အတိုင်း အောက်ကို ချပြီး ရိုက်ပါ (ဥပမာ 0.0123 → 0.012)။ Fee (ကော်မရှင်) မပါဝင်သေးပါ။",
+                         "💡 Round the quantity DOWN to the exchange's step size (e.g. 0.0123 → 0.012). Trading fees are not included."))
